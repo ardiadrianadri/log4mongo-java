@@ -17,7 +17,15 @@
 
 package org.log4mongo;
 
+import java.io.File;
+import java.io.IOException;
 import java.net.UnknownHostException;
+import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousFileChannel;
+import java.nio.channels.CompletionHandler;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -61,10 +69,19 @@ public class MongoDbAppender extends BsonAppender {
     private String writeConcern = null;
     private Mongo mongo = null;
     private DBCollection collection = null;
+    private String fallbackFile = null;
 
     private boolean initialized = false;
+    
+    public String getFallbackFile() {
+		return fallbackFile;
+	}
 
-    /**
+	public void setFallbackFile(String fallbackFile) {
+		this.fallbackFile = fallbackFile;
+	}
+
+	/**
      * @see org.apache.log4j.Appender#requiresLayout()
      */
     public boolean requiresLayout() {
@@ -271,13 +288,12 @@ public class MongoDbAppender extends BsonAppender {
      *            The BSON object to insert into a MongoDB database collection.
      */
     @Override
-    public void append(DBObject bson) {
+    public void append(final DBObject bson) {
         if (initialized && bson != null) {
             try {
                 getCollection().insert(bson, getConcern());
             } catch (MongoException e) {
-                errorHandler.error("Failed to insert document to MongoDB", e,
-                        ErrorCode.WRITE_FAILURE);
+            	writeFallbackFile(bson.toString());
             }
         }
     }
@@ -375,6 +391,37 @@ public class MongoDbAppender extends BsonAppender {
         }
 
         return portNums;
+    }
+    
+    private void writeFallbackFile(String msg){
+    	File file = null;
+    	byte[] byteArray = null;
+    	ByteBuffer buffer = null;
+    	Path path = null;
+    	AsynchronousFileChannel channel = null;
+    	
+    	
+    	try {
+    		if (this.fallbackFile == null){
+        		errorHandler.error("Fallback file is null",null,ErrorCode.FILE_OPEN_FAILURE);
+        	}
+        	
+        	file = new File(this.fallbackFile);
+        	if (!file.exists()){
+        		file.createNewFile();
+        	}
+        	
+        	byteArray = msg.getBytes();
+        	buffer = ByteBuffer.wrap(byteArray);
+        	path = Paths.get(this.fallbackFile);
+        	channel = AsynchronousFileChannel.open(path, StandardOpenOption.WRITE);
+       	
+			channel.write(buffer, file.length());
+				
+        	
+    	} catch (IOException e){
+    		errorHandler.error("Error in I/O operation with fallback file",e,ErrorCode.FILE_OPEN_FAILURE);
+    	}
     }
 
 }
